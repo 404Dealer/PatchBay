@@ -2,7 +2,7 @@
 
 **A tiny, fast, SMS‑first CRM built with Next.js + Supabase.**
 
-> **Goal:** Become the *refine* of comms‑driven CRM — an extensible, open‑source core that lets anyone capture leads from anywhere, message them, and automate quotes in under 10 minutes.
+> **Goal:** Be the fastest, most extensible comms‑first CRM: capture leads from anywhere, notify owners instantly, and (optionally) message leads — without schema churn or lock‑in.
 
 <p align="center">
   <em>Next.js • TypeScript • Tailwind • shadcn/ui • Supabase (Auth, Postgres, Realtime, Edge Functions, Cron) • Twilio (optional)</em>
@@ -10,317 +10,106 @@
 
 ---
 
-## ✨ Why Patchbay?
+## 0) Executive Summary
 
-- **Massive simplicity**: leads → messages → quotes. No bloat.
-- **Supabase‑native**: RLS security, Realtime updates, Edge Functions for webhooks, Cron for automations.
-- **Bring Your Own Provider**: Twilio adapter for SMS, plus a built‑in **fake provider** so you can click around without credentials.
-- **Flexible data**: per‑company custom fields via JSONB. No schema churn.
-- **Contrib‑friendly**: typed domain, ports/adapters, small PR surface, preview deploys.
-
-> If you just want to kick the tires: **works with no Twilio**.
+Patchbay is an open‑source, multi‑tenant, communications‑first CRM built on **Next.js + Supabase**. It enables teams to capture leads from any source, converse via SMS, and automatically send quotes, with reliable delivery and tenant isolation by default. The project aims to be the **refine** of comms‑driven CRMs: extensible, simple, fast to deploy.
 
 ---
 
-## 📸 Screens (placeholders)
+## 1) Goals & Non‑Goals
 
-- Leads table → Lead detail (conversation thread)
-- "Send quote" → SMS received
+### Goals (v0.1 foundation)
 
-> Add your screenshots/GIF once you deploy locally.
+* Multi‑tenant core with **RLS** enforced across all business tables.
+* **Leads → Messages → Quotes** flow, with JSONB custom fields per tenant.
+* **BYO Twilio** per tenant; inbound/outbound SMS via provider adapters.
+* **Outbox worker** pattern for reliable messaging + retries + quiet hours.
+* **Owner notifications** (reply alerts, quote events) via SMS/email.
+* **Data ingest** from websites/partners via REST or Edge Functions.
+* **Apache‑2.0** licensed open core with contributor‑friendly repo.
 
----
+### Non‑Goals (v0.1)
 
-## 🧱 Stack
-
-- **App:** Next.js (App Router), TypeScript, Tailwind, shadcn/ui
-- **Data:** Supabase (Postgres + Auth + Realtime + Storage)
-- **Server glue:** Supabase Edge Functions (webhooks, workers) + Cron
-- **Messaging:** Twilio (optional) via adapter, or Fake provider (default)
-- **Tooling:** pnpm, turbo, Vitest, Playwright, GitHub Actions
-
----
-
-## 🗺️ Architecture
-
-```
-apps/web (Next.js)
-  ├─ routes (UI + server actions)
-  └─ calls into → packages/core (domain) → packages/db (queries) → Supabase
-
-supabase/functions
-  ├─ twilio-inbound   # receives SMS → insert messages (inbound)
-  ├─ twilio-status    # delivery updates → update messages.status
-  └─ outbox-worker    # drains queued events (quote.created → send SMS)
-```
-
-**Key patterns**
-- **Ports/Adapters**: `MessagingProvider` (Twilio/Fake), `TemplateEngine`.
-- **Flexible fields**: `leads.properties` (JSONB) + a few generated columns for hot filters.
-- **Transactional outbox**: reliable sends, retries, quiet hours.
-- **RLS**: tenant isolation by default.
+* Billing/seats, advanced analytics, visual workflow builders, omnichannel telephony.
+* Complex field builders (keep JSONB + per‑tenant schema; no UI designer yet).
 
 ---
 
-## 📥 Data Ingest (from websites & any source)
-Patchbay accepts leads/quotes from **any** source you control:
+## 2) Personas & Roles
 
-**Option A — Direct DB insert (simple websites/forms)**
-- From your website backend, insert into `leads` / `quotes` using the **service** key (server‑side only). Fastest path when you own both app + site.
+* **Agency Admin** (you/your staff): can belong to multiple tenants; onboard clients, manage numbers/credentials.
+* **Tenant Owner**: full control within their tenant; can invite staff.
+* **Tenant Member**: day‑to‑day; manage leads/messages/quotes.
+* **Viewer**: read‑only.
 
-**Option B — Supabase REST**
-- Use Supabase’s REST API (PostgREST) to write `leads` / `quotes` from other stacks. Keep the service key off the client.
-
-**Option C — Ingest Edge Functions (recommended for untrusted sources)**
-- Create `functions/ingest-lead` and `functions/ingest-quote` that accept HTTPS POST (with a tenant token), validate, normalize fields, and insert rows.
-- This is ideal for **external sites**, Zapier/Make, or partners.
-
-**Example: ingest-quote (Deno) sketch**
-```ts
-// supabase/functions/ingest-quote/index.ts
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-Deno.serve(async (req) => {
-  if (req.method !== 'POST') return new Response('Method Not Allowed', { status: 405 })
-  const auth = req.headers.get('authorization') || ''
-  // Verify a tenant-scoped token from Vault (or HMAC)
-  if (!await verifyTenantToken(auth)) return new Response('unauthorized', { status: 401 })
-
-  const payload = await req.json()
-  const { tenant_id, lead_id, data, total_cents } = normalizeQuote(payload)
-
-  const url = Deno.env.get('SUPABASE_URL')!
-  const key = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-  const sb = createClient(url, key)
-
-  // Insert quote (outbox trigger will queue the SMS)
-  const { error } = await sb.from('quotes').insert({ tenant_id, lead_id, data, total_cents })
-  if (error) return new Response('bad request', { status: 400 })
-  return new Response('ok')
-})
-```
-
-> Your clients’ websites can post directly to these ingest endpoints. You can also wire Zapier/Make to them or to Supabase REST.
-
----
-apps/web (Next.js)
-  ├─ routes (UI + server actions)
-  └─ calls into → packages/core (domain) → packages/db (queries) → Supabase
-
-supabase/functions
-  ├─ twilio-inbound   # receives SMS → insert messages (inbound)
-  ├─ twilio-status    # delivery updates → update messages.status
-  └─ outbox-worker    # drains queued events (quote.created → send SMS)
-```
-
-**Key patterns**
-
-- **Ports/Adapters**: `MessagingProvider` (Twilio/Fake), `TemplateEngine`.
-- **Flexible fields**: `leads.properties` (JSONB) + a few generated columns for hot filters.
-- **Transactional outbox**: reliable sends, retries, quiet hours.
-- **RLS**: tenant isolation by default.
+Roles are enforced via **memberships** + **RLS** (see §6).
 
 ---
 
-## 📦 Repo layout
+## 3) Primary User Journeys
 
-```
-suplead/
-├─ apps/
-│  └─ web/                      # Next.js (App Router)
-├─ packages/
-│  ├─ core/                     # domain types, zod schemas, use-cases
-│  ├─ db/                       # migrations, typed queries (Kysely/Drizzle)
-│  ├─ adapters/
-│  │  ├─ messaging-twilio/
-│  │  └─ messaging-fake/
-│  └─ ui/                       # shadcn components (DataTable, Kanban, etc.)
-├─ supabase/
-│  ├─ migrations/               # SQL (tables, RLS, indexes, seeds)
-│  └─ functions/
-│     ├─ twilio-inbound/
-│     ├─ twilio-status/
-│     └─ outbox-worker/
-├─ .github/workflows/ci.yml
-├─ LICENSE
-├─ README.md
-├─ CONTRIBUTING.md
-└─ SECURITY.md
-```
+1. **Capture Lead**: ingest from website → `leads` row with `properties` JSONB → appears in Leads UI.
+2. **Two‑Way SMS**: user sends from Lead → outbox (optionally) → Twilio → inbound reply → UI realtime update.
+3. **Quote Auto‑SMS**: insert `quotes` row → outbox event → render template → send SMS → status webhook updates → message thread.
+4. **Owner Notify**: on `message.received`/`quote.*`, enqueue `notifications` → worker sends owner alert via SMS/email.
+5. **Tenant Setup**: create tenant → store **per‑tenant** Twilio creds → map numbers → create templates → go live.
 
 ---
 
-## 🚀 Quick start
-
-### 0) Prereqs
-
-- Node 20+, pnpm, GitHub account
-- Supabase project (grab `URL`, `anon`, `service_role`)
-- Optional: Twilio (Account SID, Auth Token, Messaging Service SID)
-
-### 1) Bootstrap
-
-```bash
-pnpm i -g pnpm
-pnpm create next-app suplead --ts --eslint --app --src-dir --tailwind --no-import-alias
-cd suplead
-pnpm add @supabase/supabase-js zod
-pnpm add -D @types/node
-# shadcn/ui (pick minimal components)
-pnpm dlx shadcn@latest add button input table dialog textarea toast
-```
-
-### 2) Configure Supabase
-
-- Create a new project in the Supabase dashboard.
-- Run the SQL in `supabase/migrations/0001_init.sql` (provided) to create tables, RLS, indexes.
-- (Optional) run the seed SQL to create demo data.
-
-### 3) Environment
-
-Create `/.env.local`:
+## 4) System Architecture
 
 ```
-NEXT_PUBLIC_SUPABASE_URL=
-NEXT_PUBLIC_SUPABASE_ANON_KEY=
-SUPABASE_SERVICE_KEY=
+apps/web (Next.js) ── UI + server actions ─┬─ packages/core (domain, ports)
+                                          └─ packages/db (queries, migrations)
 
-# UI/Mode flags
-NEXT_PUBLIC_SINGLE_TENANT=true        # hide tenant switch; auto-use the user's default tenant
-PATCHBAY_ENFORCE_ROLES=true           # enable role-based UI guards (owner/admin/member/viewer)
+Supabase Postgres ─ business tables (RLS) + pg_cron + pg_net + Vault
 
-# Optional Twilio (per-tenant BYO credentials still stored in DB)
-TWILIO_ACCOUNT_SID=
-TWILIO_AUTH_TOKEN=                     # used for signature validation
-TWILIO_MESSAGING_SERVICE_SID=
+Edge Functions (Deno)
+  • twilio-inbound     ← Twilio webhook (SMS In)
+  • twilio-status      ← Twilio webhook (DLR)
+  • outbox-worker      ← Cron via pg_net (sends queued events)
+  • reconcile-status   ← Nightly, reconciles missed DLRs
+  • ingest-lead/quote  ← External capture endpoints (tenant token)
 ```
 
-> **Next.js tip:** any variable prefixed with `NEXT_PUBLIC_` is bundled to the client. **Never put secrets there.**
-
-### 4) Run locally
-
-```bash
-pnpm dev
-```
-
-Visit http://localhost:3000 → you can browse leads, open a lead, and send messages (fake provider by default). [http://localhost:3000](http://localhost:3000) → you can browse leads, open a lead, and send messages (fake provider by default).
+Key patterns: **Ports/Adapters**, **Outbox**, **JSONB custom fields**, **RLS everywhere**.
 
 ---
 
-## 📡 Edge Functions (webhooks & worker)
+## 5) Data Model (Authoritative)
 
-### Deploy functions
+> All tables include `tenant_id` and have RLS enabled. Unique constraints include `tenant_id` where relevant.
 
-```bash
-# init once
-pnpm dlx supabase init
+### Tenancy & Auth
 
-# set secret for functions to talk to your DB
-pnpm dlx supabase secrets set --project-ref <ref> SUPABASE_SERVICE_ROLE_KEY=...
+* `tenants(id, name, timezone, quiet_hours jsonb, created_at)`
+* `profiles(id uuid PK → auth.users, display_name, created_at)`
+* `memberships(user_id → profiles.id, tenant_id → tenants.id, role enum('owner','admin','member','viewer'), created_at, PRIMARY KEY(user_id, tenant_id))`
 
-# deploy
-pnpm dlx supabase functions deploy twilio-inbound --project-ref <ref>
-pnpm dlx supabase functions deploy twilio-status  --project-ref <ref>
-pnpm dlx supabase functions deploy outbox-worker  --project-ref <ref>
-```
+### Pipeline & Leads
 
-### Point Twilio webhooks
+* `pipelines(id, tenant_id, name, created_at)`
+* `stages(id, tenant_id, pipeline_id, name, position, win_probability)`
+* `leads(id, tenant_id, first_name, last_name, phone, email, stage_id, source, properties jsonb default '{}', consent_sms bool default true, last_contacted_at, created_at, updated_at, GENERATED COLUMNS e.g. zip)`
 
-- **Inbound**: `https://<project-ref>.supabase.co/functions/v1/twilio-inbound`
-- **Status**:  `https://<project-ref>.supabase.co/functions/v1/twilio-status`
+  * Indexes: `GIN(properties)`, `(tenant_id, stage_id)`, `(tenant_id, created_at)`
+  * Uniques: `(tenant_id, phone)` nullable‑aware if needed
 
-### Cron (scheduled sends / retries / quiet hours)
+### 🔁 Quote Events (default: owner notifications)
 
-**Supabase way (recommended):** use **pg_cron** + **pg_net** and store a function token in **Vault**. Create once:
+**Reality check:** Quotes are **generated on your clients’ websites** and written into Patchbay’s **Supabase DB**. By default, Patchbay **does not text the lead**. Instead it **notifies the business owner/staff** so they can follow up.
 
-```sql
--- Store a bearer token (e.g., a Function JWT) in Vault
--- Dashboard → Database → Vault: OUTBOX_FN_TOKEN
+**Flow**
 
--- Cron job: every minute call the outbox worker with Authorization header
-select
-  net.http_post(
-    url     := 'https://<project-ref>.supabase.co/functions/v1/outbox-worker',
-    headers := jsonb_build_object('authorization', 'Bearer ' || vault.get('OUTBOX_FN_TOKEN'))
-  );
-```
+1. External site posts a row into `quotes` (via REST or `ingest-quote`).
+2. A trigger enqueues an **outbox** event: `event_type='quote.created'` with `{quote_id, lead_id}`.
+3. The **outbox worker** evaluates tenant mode:
 
-Create the schedule in Dashboard → **Cron** with `* * * * *`.
+   * **Notification‑Only (no tenant provider creds)** → send **owner/admin notification** via your **agency provider**.
+   * **Full Comms (tenant has provider + has opted‑in)** → optionally send a **lead notification** using tenant’s provider **if** `tenant_settings.send_quote_to_lead=true` *and* a `templates('quote_sms')` exists.
+4. Delivery/status are logged to `messages` (owner alerts can log to a separate `notifications` table or `messages` with `channel='sms'` + `is_owner_notification=true`).
 
-> Keep the token out of SQL/text files; rotate in Vault when needed.
-
----
-
-## 🧬 Data model (simplified)
-
-```sql
-create table leads (
-  id uuid primary key default gen_random_uuid(),
-  tenant_id uuid not null,
-  first_name text, last_name text,
-  phone text, email text,
-  stage_id uuid references stages(id),
-  source text,
-  properties jsonb not null default '{}'::jsonb, -- per-company fields
-  last_contacted_at timestamptz,
-  created_at timestamptz default now(),
-  updated_at timestamptz default now()
-);
-create index leads_properties_gin on leads using gin (properties);
-
-create table messages (
-  id uuid primary key default gen_random_uuid(),
-  tenant_id uuid not null,
-  lead_id uuid not null references leads(id) on delete cascade,
-  direction text check (direction in ('outbound','inbound')) not null,
-  channel text check (channel in ('sms','whatsapp','email')) not null,
-  provider_message_id text,
-  from_number text, to_number text,
-  body text not null,
-  status text check (status in ('queued','sent','delivered','failed','received')),
-  error_code text,
-  created_at timestamptz default now()
-);
-
-create table quotes (
-  id uuid primary key default gen_random_uuid(),
-  tenant_id uuid not null,
-  lead_id uuid not null references leads(id) on delete cascade,
-  data jsonb not null,      -- flexible: items, terms, etc.
-  total_cents int not null,
-  currency text default 'USD',
-  status text check (status in ('draft','sent','accepted','rejected')) default 'draft',
-  created_at timestamptz default now(),
-  sent_at timestamptz
-);
-
-create table templates (
-  id uuid primary key default gen_random_uuid(),
-  tenant_id uuid not null,
-  key text not null,      -- e.g. 'quote_sms'
-  content text not null,  -- e.g. "Hi {{first_name}}, your quote is ${{total}}: {{short_url}}"
-  unique (tenant_id, key)
-);
-
-create table outbox (
-  id bigint generated by default as identity primary key,
-  tenant_id uuid not null,
-  event_type text not null,   -- 'quote.created', 'quote.send', ...
-  payload jsonb not null,
-  attempt int not null default 0,
-  next_attempt_at timestamptz default now(),
-  processed_at timestamptz
-);
-```
-
-> **Custom fields:** add anything into `leads.properties` per tenant (company). Index the 1–2 fields you filter by most.
-
----
-
-## 🔁 Quote → SMS automation
-
-**Use‑case:** Your client writes a new row into `quotes` (from any tool). Patchbay detects it and texts the lead a quote automatically.
-
-1. A DB trigger enqueues an **outbox** event:
+**Trigger (unchanged)**
 
 ```sql
 create or replace function enqueue_quote_send() returns trigger as $$
@@ -334,88 +123,354 @@ create trigger quotes_outbox after insert on quotes
 for each row execute function enqueue_quote_send();
 ```
 
-2. The **outbox worker** function (cron) picks it up, renders the tenant’s `templates.quote_sms` with `{{tokens}}` from `lead` + `quote.data`, checks consent/quiet hours, sends via provider, inserts an outbound `messages` row, marks outbox as processed.
+**Optional tenant setting**
 
-> Idempotency: key on `quote_id` in the worker so you don’t double‑send.
+```sql
+alter table tenants add column if not exists send_quote_to_lead boolean default false;
+```
 
----
-
-## 🔐 Security & compliance
-
-- **RLS** on all business tables with `tenant_id` checks.
-- **Secrets**: service role key is server/edge only; never on the client.
-- **Webhook signatures**: Twilio signature validation is **required**.
-- **Consent**: STOP/HELP handling flips `consent_sms=false` and suppresses sends.
-- **Rate limits**: token bucket per tenant for `/api/messages/send`.
-
-### Consent behavior (US)
-| Keyword(s) | Action |
-|---|---|
-| `STOP`, `STOPALL`, `UNSUBSCRIBE`, `CANCEL`, `END`, `QUIT` | Set `consent_sms=false`; enqueue a confirmation reply; block further sends except HELP/START. |
-| `START`, `YES`, `UNSTOP` | Set `consent_sms=true`; send opt-in confirmation. |
-| `HELP`, `INFO` | Send help message with business name and support contact. |
-
-> A2P 10DLC (US long codes) requires brand/campaign registration; ensure each tenant is compliant when using 10DLC.
+> Default behavior is safe: **owner notifications only**. Tenant‑initiated lead texts are opt‑in and require provider credentials + a template.
 
 ---
 
-## 🧩 Configuration
+## 6) Security Model
 
-- **Providers**: set Twilio env vars to enable real SMS. If absent, the Fake provider is used.
-- **API Keys**: prefer Twilio **API Key SID/Secret** for REST calls; keep the **Auth Token** only for webhook signature validation.
-- **Templates**: create a `templates` row with `key='quote_sms'` and your message. Supported tokens: `{{first_name}}`, `{{last_name}}`, `{{total}}`, and any path from `lead.properties` or `quote.data`.
-- **Quiet hours**: tenant setting read by the worker; sends outside the window are delayed.
-- **Secrets**: store function tokens in **Vault**. For per‑tenant API keys, either store in Vault or encrypt at rest in Postgres (e.g., `pgcrypto`). Example:
-  ```sql
-  -- Encrypt at rest using a key from Vault
-  update messaging_credentials
-  set api_key_secret = pgp_sym_encrypt(api_key_secret, vault.get('ENC_KEY'))
-  where tenant_id = '<id>';
-  ```
+* **Auth:** Supabase Auth; derive `tenant_id` from `memberships` on each request.
+* **RLS:** Explicitly `enable row level security` on all tables; policies check membership.
+* **Secrets:** Function tokens and encryption keys in **Vault**; per‑tenant API secrets can be encrypted at rest via `pgcrypto`.
+* **Twilio Webhooks:** Validate `X‑Twilio‑Signature`; HTTPS only.
+* **Consent & A2P:** On STOP/STOPALL/UNSUBSCRIBE… → `consent_sms=false` and emit confirm; HELP returns info; START re‑enables.
+* **Rate Limiting:** Token bucket per tenant for send endpoints & worker dispatch.
 
 ---
 
-## 🧪 Tests
+## 7) Interfaces, APIs & Functions
 
-- **Unit**: template rendering, Twilio adapter status mapping, outbox logic.
-- **Integration**: API send (fake + Twilio), inbound/status functions.
-- **E2E**: create lead → send → inbound reply → thread updates via Realtime.
+### Ports (TypeScript)
+
+```ts
+// Messaging
+export type MessageStatus = 'queued'|'sent'|'delivered'|'failed'|'received'
+export interface MessagingProvider {
+  send(input: { tenantId: string; leadId: string; to: string; body: string; from?: string }): Promise<{ providerId: string; status: MessageStatus }>
+}
+
+// Templates
+export interface TemplateEngine {
+  render(content: string, ctx: { lead: any; quote?: any; tenant: any }): string
+}
+```
+
+### Provider Registry
+
+`MessagingProviderRegistry.get(tenantId)` → resolves `messaging_credentials` and returns a configured provider (Twilio or Fake).
+
+### Next.js Server APIs
+
+* `POST /api/messages/send` — Inputs: `{leadId, to, body}`; Behavior: check consent/rate limit → call provider (or enqueue via outbox) → insert `messages` row → 200.
+
+### Edge Functions (Deno)
+
+* `twilio-inbound` — Validate signature → resolve tenant (MessagingServiceSid → To) → insert `messages(inbound)` → optional STOP/HELP handling.
+* `twilio-status` — Validate signature → update `messages.status`/`error_code`.
+* `outbox-worker` — Cron every minute; fetch due events; enforce quiet hours; send via provider; mark processed; retry with backoff.
+* `reconcile-status` — Nightly; reconcile last 24h with Twilio to correct missed DLRs.
+* `ingest-lead`, `ingest-quote` — Public endpoints with tenant token; validate → insert rows; rely on triggers to enqueue outbox when needed.
+
+### Triggers
+
+* `quotes_outbox`: AFTER INSERT on `quotes` → enqueue `outbox(event='quote.created', payload={quote_id, lead_id})`.
+* `messages_touch`: AFTER INSERT on `messages` → update `leads.updated_at`.
 
 ---
 
-## 🤝 Contributing
+## 8) Configuration & Environments
 
-We love contributions! Please read **CONTRIBUTING.md**.
+**.env**
 
-- Fork → create a branch → make changes → PR.
-- All PRs run lint, typecheck, tests, and a preview deploy.
-- Use Conventional Commits (e.g. `feat:`, `fix:`, `docs:`).
+```
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_KEY=
 
-**Good first issues**
+# UI/Mode
+NEXT_PUBLIC_SINGLE_TENANT=true
+PATCHBAY_ENFORCE_ROLES=true
 
-- STOP/HELP handler in inbound function
-- CSV/Sheets import polishing
-- Quiet hours + timezone settings
-- Drizzle/Kysely typed queries
-- Template variables & examples
+# Twilio (global, optional; per‑tenant creds live in DB)
+TWILIO_ACCOUNT_SID=
+TWILIO_AUTH_TOKEN=        # used for signature validation
+TWILIO_MESSAGING_SERVICE_SID=
+```
 
-Join Discussions for Q&A and feature proposals.
+> `NEXT_PUBLIC_*` is bundled to the client — never store secrets there.
+
+**Cron via pg_net + Vault**
+
+```sql
+-- Vault: store OUTBOX_FN_TOKEN
+select net.http_post(
+  url := 'https://<ref>.supabase.co/functions/v1/outbox-worker',
+  headers := jsonb_build_object('authorization', 'Bearer '|| vault.get('OUTBOX_FN_TOKEN'))
+);
+```
 
 ---
 
-## 🗺️ Roadmap (high‑level)
+## 9) Deployment Topology
 
-- Email adapter (Resend) + templates
-- Web form widget for capture (UTM auto‑capture)
-- Attachments via Supabase Storage
-- Multi‑tenant admin, audit log, scheduled sends
-- WhatsApp through provider channel
+* **Vercel** for `apps/web` (Next.js).
+* **Supabase** for Postgres (RLS), Edge Functions, Vault, pg_cron/pg_net.
+* **Twilio** webhooks → `twilio-inbound`, `twilio-status`.
+* **Subaccounts + Messaging Services** per tenant (ISV best practice).
 
 ---
 
-## 📄 License
-**Apache License 2.0** — permissive, patent‑grant, enterprise‑friendly.
+## 10) Observability & Ops
 
-- ✅ Commercial use, modification, redistribution allowed.
-- ✅ Explicit **patent license** to users and contributors.
-- 📌 Obligations: include the **LICENSE** text and a **NOTICE** file (if present) when redistributing binaries/source; keep copyright notices.
+* **Logs:** Edge function logs; DB error tables; store `error_code` on `messages`/`outbox`/`notifications`.
+* **Idempotency:** Use unique keys (e.g., `quote_id`) inside worker to avoid duplicate sends.
+* **Dead‑letter:** After N attempts, flag outbox rows for manual review.
+
+---
+
+## 11) Testing Strategy
+
+* **Unit:** provider adapters, template rendering, token bucket.
+* **Integration:** send API (fake + Twilio), inbound/status functions.
+* **RLS Tests:** run queries as anon vs service; verify denial outside tenant.
+* **E2E:** create lead → send → inbound reply → realtime thread updates.
+
+---
+
+## 12) Coding Standards
+
+* TypeScript strict, Zod schemas at boundaries.
+* ESLint + Prettier (or Biome); Conventional Commits.
+* Directory hygiene: `apps/web`, `packages/{core,db,adapters,ui}`, `supabase/{migrations,functions}`.
+
+---
+
+## 13) Work Breakdown (Boilerplate Foundation)
+
+**A. Repo & Tooling**
+
+* [ ] pnpm + turbo monorepo; CI: lint/typecheck/test/preview.
+* [ ] `packages/core` with ports (`MessagingProvider`, `TemplateEngine`) + zod types.
+* [ ] `packages/db` with migrations folder + seed script; Kysely/Drizzle setup.
+* [ ] `packages/adapters/messaging-fake` + `messaging-twilio` (skeleton only).
+* [ ] `packages/ui` (shadcn baseline: Button, Input, Table, Dialog, Toast).
+
+**B. Database & RLS**
+
+* [ ] Authoritative SQL: all tables in §5 with **RLS enabled** + base policies.
+* [ ] Indexes & uniques (JSONB GIN, `(tenant_id, phone)`, `(tenant_id, key)`).
+
+**C. Edge Functions**
+
+* [ ] `twilio-inbound` with signature validation stub.
+* [ ] `twilio-status` updater.
+* [ ] `outbox-worker` loop w/ backoff & quiet hours.
+* [ ] `reconcile-status` skeleton.
+* [ ] `ingest-lead` + `ingest-quote` skeletons.
+
+**D. Web App**
+
+* [ ] Auth bootstrap; single‑tenant mode flag.
+* [ ] Leads list + Lead detail + Conversation component (Realtime subscribe).
+* [ ] `POST /api/messages/send` (fake by default; Twilio when creds present).
+* [ ] Settings pages: tenant templates, numbers, credentials (minimal UI).
+
+**E. Docs**
+
+* [ ] README (install, env, deploy; already drafted).
+* [ ] CONTRIBUTING + SECURITY + Issue templates.
+
+**Acceptance**: Seeded demo can (1) create lead, (2) send message (fake), (3) accept inbound payload (simulated), (4) see realtime update, (5) insert `quotes` row → outbox enqueued.
+
+---
+
+## 14) Risks & Mitigations
+
+* **A2P compliance:** enforce STOP/HELP/START; document BYO Twilio registration.
+* **Secrets exposure:** Vault + pgcrypto; never store secrets in `NEXT_PUBLIC_*`.
+* **Multi‑tenant leaks:** RLS tests; derive tenant on server; never trust client `tenant_id`.
+
+---
+
+## 15) Roadmap (post‑foundation)
+
+* Email adapter (Resend); attachments via Supabase Storage.
+* Quiet hours UI, timezone per tenant; scheduling UI.
+* Web form widget; UTM capture; Zapier/Make templates.
+* Role‑based page middleware; audit log.
+* Dashboard & basic analytics once usage data informs metrics.
+
+---
+
+## Appendix A — RLS Enablement & Policy Shape
+
+```sql
+-- Enable RLS (repeat for all tables)
+alter table leads enable row level security;
+
+-- Base SELECT policy example
+create policy leads_tenant_read on leads for select using (
+  exists (
+    select 1 from memberships m
+    where m.user_id = auth.uid() and m.tenant_id = leads.tenant_id
+  )
+);
+
+-- Base ALL policy example
+create policy leads_tenant_all on leads for all using (
+  exists (
+    select 1 from memberships m
+    where m.user_id = auth.uid() and m.tenant_id = leads.tenant_id
+  )
+);
+```
+
+## Appendix B — Consent Behavior (US)
+
+| Keyword(s)                               | Action                                                     |
+| ---------------------------------------- | ---------------------------------------------------------- |
+| STOP/STOPALL/UNSUBSCRIBE/CANCEL/END/QUIT | set `consent_sms=false`; send confirm; block further sends |
+| START/YES/UNSTOP                         | set `consent_sms=true`; send confirm                       |
+| HELP/INFO                                | help text with business info                               |
+
+## Appendix C — Ingest Payload Shapes (suggested)
+
+```json
+// Lead
+{ "tenant_token": "...", "lead": { "first_name":"...", "phone":"...", "properties": {"zip":"78249","service_type":"shed"} } }
+
+// Quote
+{ "tenant_token": "...", "quote": { "lead_id":"uuid", "total_cents": 120000, "data": {"items":[{"name":"10x12 shed","cents":120000}]}} }
+```
+
+## Appendix D — Directory Skeleton
+
+```
+apps/web
+packages/core
+packages/db
+packages/adapters/messaging-fake
+packages/adapters/messaging-twilio
+packages/ui
+supabase/migrations
+supabase/functions/{twilio-inbound,twilio-status,outbox-worker,reconcile-status,ingest-lead,ingest-quote}
+```
+
+---
+
+## 🔌 Adapters & Extensions
+
+Patchbay is designed to be **adapter‑driven**. SMS/Twilio ships first, but the same interfaces support Email (Resend), WhatsApp (Meta/Twilio), Telegram, Push (FCM), MessageBird/Vonage, etc.
+
+### Ports (stable contracts)
+
+```ts
+// Channel can be extended by adapters without code changes
+export type Channel = 'sms' | 'email' | 'whatsapp' | 'messenger' | 'push' | (string & {})
+
+export type MessageStatus = 'queued'|'sent'|'delivered'|'failed'|'received'
+
+export interface MessagingProvider {
+  send(input: { tenantId: string; leadId: string; channel: Channel; to: string; body: string; from?: string }): Promise<{ providerId: string; status: MessageStatus }>
+  parseInbound?(req: Request): Promise<{ channel: Channel; from: string; to: string; body: string; providerId?: string }>
+  parseStatus?(req: Request): Promise<{ providerId: string; status: MessageStatus; errorCode?: string }>
+}
+
+export interface ProviderManifest {
+  id: string                   // e.g. 'twilio', 'resend', 'telegram'
+  displayName: string
+  channels: Channel[]          // e.g. ['sms'], ['email']
+  configSchema: unknown        // zod schema for per‑tenant config
+}
+```
+
+### Registry (per‑tenant resolution)
+
+```ts
+// Given a tenantId + desired channel, resolve an initialized provider
+export async function getProvider(tenantId: string, channel: Channel): Promise<MessagingProvider> {
+  const cfg = await db.getTenantProviderConfig(tenantId, channel) // from messaging_credentials
+  switch (cfg.id) {
+    case 'twilio': return createTwilioProvider(cfg)
+    case 'resend': return createResendEmailProvider(cfg)
+    // ... more
+    default: throw new Error('No provider for channel')
+  }
+}
+```
+
+### Webhooks (normalized inbound/status)
+
+Each adapter exposes `parseInbound` / `parseStatus`. Edge Functions call the parser and upsert **normalized** records into `messages` so the UI stays provider‑agnostic.
+
+### How to add a new adapter (PR‑friendly)
+
+1. Create `packages/adapters/messaging-<name>` with `create<Name>Provider(cfg) → MessagingProvider`.
+2. Add config fields to `messaging_credentials` (or use a JSONB `provider_config`).
+3. Wire the adapter into the **registry** and add minimal docs + tests.
+4. If inbound webhooks are needed, add a function `/<name>-inbound` that calls the adapter’s `parseInbound` and writes to `messages`.
+
+**Next adapters to consider:**
+
+* **Email** (Resend) for quotes/receipts
+* **WhatsApp** (Twilio or Meta Cloud API)
+* **Telegram** (Bot API)
+* **Push** (FCM) for owner notifications
+
+---
+
+## 🧭 Tenant Modes & Agency SMS Fallback
+
+Patchbay supports two operational modes per tenant:
+
+**Mode 1 — Full Comms** (tenant has their own provider creds)
+
+* Outbound/inbound with **the tenant’s numbers**.
+* Owners can also get notifications from the same numbers or a separate system number.
+
+**Mode 2 — Notification‑Only (default if no creds)**
+
+* **No customer SMS** is sent.
+* **Owner/Admin notifications only** are sent via **your agency’s Twilio** (fallback provider).
+* Ideal for clients who haven’t onboarded Twilio yet; they still get their leads instantly.
+
+**Env (agency fallback)**
+
+```
+AGENCY_TWILIO_ACCOUNT_SID=
+AGENCY_TWILIO_API_KEY_SID=
+AGENCY_TWILIO_API_KEY_SECRET=
+AGENCY_TWILIO_MESSAGING_SERVICE_SID=
+AGENCY_SYSTEM_NUMBER=            # optional; or use a Messaging Service pool
+```
+
+**DB**
+
+* Use `phone_numbers(is_system=true)` per tenant to map a distinct sender for owner alerts (recommended), even when using your agency’s Twilio.
+
+**Send Guardrails**
+
+```ts
+// Pseudocode in send API / worker
+if (!tenantHasProviderCreds && target === 'lead') {
+  throw new Error('Customer messaging disabled until tenant connects a provider')
+}
+const provider = tenantHasProviderCreds
+  ? getTenantProvider(tenantId, 'sms')
+  : getAgencyProvider('sms') // allowed only for owner/admin targets
+```
+
+**Ingest default**
+
+* `ingest-lead` automatically enqueues an owner SMS notification when `tenantHasProviderCreds === false`.
+
+**Compliance**
+
+* Register your agency brand/campaign with use case **Account Notifications** (not marketing) for owner alerts.
+* STOP/HELP from owner numbers should toggle an owner‑level opt‑out and suppress further notifications.
