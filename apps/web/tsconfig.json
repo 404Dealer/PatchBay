@@ -1,0 +1,45 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "preserve",
+    "baseUrl": ".",
+    "paths": {
+      "@patchbay/core": [
+        "../../packages/core/src"
+      ],
+      "@patchbay/db": [
+        "../../packages/db/src"
+      ],
+      "@patchbay/ui": [
+        "../../packages/ui/src"
+      ],
+      "@patchbay/messaging-twilio": [
+        "../../packages/adapters/messaging-twilio/src"
+      ],
+      "@patchbay/messaging-fake": [
+        "../../packages/adapters/messaging-fake/src"
+      ],
+      "@/*": [
+        "./*"
+      ]
+    },
+    "incremental": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "types": ["@playwright/test"],
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ]
+  },
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    "next-env.d.ts",
+    ".next/types/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
+}

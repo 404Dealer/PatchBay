@@ -1,0 +1,25 @@
+{
+  "name": "@patchbay/db",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.31.0",
+    "drizzle-kit": "^0.23.0",
+    "pg": "^8.11.3",
+    "@supabase/supabase-js": "^2.45.0",
+    "zod": "^3.22.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}
+
+

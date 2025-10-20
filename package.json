@@ -1,0 +1,38 @@
+{
+  "name": "patchbay",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "packageManager": "pnpm@9.0.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "packages/adapters/*"
+  ],
+  "scripts": {
+    "dev": "turbo run dev --parallel",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "e2e": "turbo run e2e",
+    "e2e:smoke": "turbo run e2e:smoke",
+    "format": "prettier --write .",
+    "db:gen": "drizzle-kit generate --config packages/db/drizzle.config.ts"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.27.0",
+    "@types/node": "^20.11.0",
+    "eslint": "^9.0.0",
+    "eslint-config-next": "^15.5.6",
+    "husky": "^9.0.0",
+    "playwright": "^1.47.0",
+    "prettier": "^3.2.5",
+    "turbo": "^2.0.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.5.0",
+    "zod": "^3.22.0"
+  }
+}
+
+
