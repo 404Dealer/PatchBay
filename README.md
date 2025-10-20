@@ -420,7 +420,7 @@ Join Discussions for Q&A and feature proposals.
 - ✅ Explicit **patent license** to users and contributors.
 - 📌 Obligations: include the **LICENSE** text and a **NOTICE** file (if present) when redistributing binaries/source; keep copyright notices.
 
-> Why Apache for Patchbay? It keeps adoption friction low (like MIT) and is often preferred by enterprises because of the patent grant. Great for an open‑core SaaS.
+
 
 **Next steps** (repo hygiene):
 - Add `LICENSE` with Apache‑2.0 text (top‑level).
