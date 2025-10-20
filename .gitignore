@@ -13,8 +13,10 @@ dist/
 # Environment files
 .env
 .env.*
+!.env.example
 apps/*/.env
 apps/*/.env.*
+!apps/*/.env.example
 # Logs
 *.log
 npm-debug.log*
