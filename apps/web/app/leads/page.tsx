@@ -1,6 +1,8 @@
 import Link from 'next/link'
 import { getServerComponentSupabase } from '@/lib/supabaseClient'
 
+export const runtime = 'nodejs'
+
 export default async function LeadsPage() {
   const supabase = getServerComponentSupabase()
   const { data: leads } = await supabase.from('leads').select('id, first_name, last_name, phone, created_at').order('created_at', { ascending: false }).limit(50)
