@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { getServerComponentSupabase } from '@/lib/supabaseClient'
 
 export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
 
 export default async function LeadsPage() {
   const supabase = getServerComponentSupabase()

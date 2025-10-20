@@ -1,5 +1,8 @@
 import { getServerComponentSupabase } from '@/lib/supabaseClient'
 
+export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
+
 export default async function SettingsPage() {
   const supabase = getServerComponentSupabase()
   const { data: templates } = await supabase.from('templates').select('id, key, content').order('created_at', { ascending: false }).limit(20)
