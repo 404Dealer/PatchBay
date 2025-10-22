@@ -380,7 +380,6 @@ We love contributions! Please read **CONTRIBUTING.md**.
 
 **Good first issues**
 
-- STOP/HELP handler in inbound function
 - CSV/Sheets import polishing
 - Quiet hours + timezone settings
 - Drizzle/Kysely typed queries
