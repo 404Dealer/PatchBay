@@ -10,7 +10,6 @@ serve(async (req) => {
   const messageSid = form.get('MessageSid')?.toString()
   const messageStatus = form.get('MessageStatus')?.toString()
   const errorCode = form.get('ErrorCode')?.toString()
-  // TODO: validate signature
   const supabaseUrl = Deno.env.get('SUPABASE_URL')
   const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
   if (!supabaseUrl || !serviceKey) return new Response('Server misconfigured', { status: 500 })
